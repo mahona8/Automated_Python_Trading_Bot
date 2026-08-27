@@ -5,7 +5,7 @@ import duckdb
 def get_connection():
 
     connection = duckdb.connect(
-        "myCode/database/market.duckdb"
+        "Automated_Python_Trading_Bot/database/market.duckdb"
     )
     return connection
 
