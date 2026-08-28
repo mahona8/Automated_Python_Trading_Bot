@@ -43,6 +43,13 @@ def buy(symbol, df):
         # place order
         order = broker_api.buy_order(symbol, quantity)
 
+        if order == broker_api.ORDER_UNKNOWN:
+
+            print(
+                f"BUY order state UNKNOWN for {symbol}. "
+            )
+            return broker_api.ORDER_UNKNOWN
+
         if order is None:
             return False
         
@@ -97,14 +104,17 @@ def sell(symbol, df):
         quantity = float(position[1])
         entry_price = float(position[2])
 
-        try:
-            order = broker_api.sell_order(symbol, quantity)
-        except Exception as e:
-            print(f"Sell order failed for {symbol}: {e}")
-            return False
+        order = broker_api.sell_order(symbol, quantity)
+
+        if order == broker_api.ORDER_UNKNOWN:
+
+            print(
+            f"SELL order state UNKNOWN for {symbol}. "
+            )
+            return broker_api.ORDER_UNKNOWN
 
         if order is None:
-            print(f"Sell order failed for {symbol}. Skipping trade.")
+            print(f"Sell order failed for {symbol}.")
             return False
 
         # get actual sell fill price

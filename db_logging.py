@@ -121,3 +121,105 @@ def get_all_trades():
 
     connection.close()
     return result
+
+
+# POSITION RECONCILIATION HELPER FUNCTIONS
+
+def delete_all_positions():
+    """
+    Delete all local open-position records.
+
+    WARNING:
+    This only changes the database.
+    It does NOT sell anything at Alpaca.
+    """
+
+    connection = get_connection()
+
+    connection.execute(
+        """
+        DELETE FROM positions
+        """
+    )
+    connection.close()
+
+
+def replace_position(
+    symbol,
+    quantity,
+    entry_price,
+    entry_time,
+    stop_loss,
+    trailing_stop
+):
+    """
+    Replace/create a position in the local DB.
+
+    Used by reconciliation when Alpaca is considered
+    authoritative.
+    """
+
+    connection = get_connection()
+
+    connection.execute(
+        """
+        DELETE FROM positions
+        WHERE symbol = ?
+        """,
+        [symbol]
+    )
+
+    connection.execute(
+        """
+        INSERT INTO positions (
+            symbol,
+            quantity,
+            entry_price,
+            entry_time,
+            highest_price,
+            stop_loss,
+            trailing_stop
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            symbol,
+            quantity,
+            entry_price,
+            entry_time,
+            entry_price,
+            stop_loss,
+            trailing_stop
+        ]
+    )
+    connection.close()
+
+
+def get_position_symbols():
+
+    connection = get_connection()
+
+    result = connection.execute(
+        """
+        SELECT symbol
+        FROM positions
+        """
+    ).fetchall()
+    connection.close()
+
+    return {row[0] for row in result}
+
+
+def update_position_quantity(symbol, quantity):
+    connection = get_connection()
+
+    connection.execute(
+        """
+        UPDATE positions
+        SET quantity = ?
+        WHERE symbol = ?
+        """,
+        [quantity, symbol]
+    )
+
+    connection.close()

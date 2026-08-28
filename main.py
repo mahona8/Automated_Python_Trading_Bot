@@ -2,8 +2,11 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from notifications import send_failure_notification
+from database import reconciliation
 from trading import trade_executions
 from trading import trade_functions
+import broker_api
 import market_data
 import symbols
 import db_logging
@@ -28,26 +31,74 @@ def main():
         # 2 - emergency EOD close
         if trade_functions.minutes_until_market_close() < 15:
 
+            print("")
+            print("=" * 60)
+            print("EOD LIQUIDATION STARTING")
+            print("=" * 60)
+
+            # First - sell everything recorded in DB
+
+
             positions = db_logging.get_all_positions()
 
             for position in positions:
+
                 symbol = position[0]
 
-                # get latest data if needed
+                print(
+                    f"EOD DB position: "
+                    f"{symbol} x {position[1]}"
+                )
+
                 df = queries.get_latest_bars(symbol)
 
-                trade_executions.sell(symbol, df)
+                try:
+                    trade_executions.sell(symbol, df)
 
-            # add current account balance of this date to account table
-            account_balance = trade_functions.get_account_value()
-            date = datetime.now(
-                ZoneInfo("America/New_York")
-            ).date()
-            data_for_user_functions.add_account_balance(date, account_balance)
+                except Exception as e:
 
-            print("Sold all positions")
-            # after this stop buying
-            time.sleep(3600)            # 1 hour
+                    print(
+                        f"Error selling DB position {symbol}: {e}"
+                    )
+
+ 
+            # Second -  ask Alpaca what is ACTUALLY still held
+            # This catches positions missing from DB, failed DB deletes,
+            # previous connection failures,partial/unknown order outcomes
+   
+            print("")
+            print("Checking Alpaca for remaining positions...")
+
+            alpaca_flat = (
+                reconciliation.close_all_alpaca_positions()
+            )
+
+            # Third - only consider EOD liquidation successful if
+   
+            if alpaca_flat:
+                print("")
+                print("EOD liquidation successful.")
+                print("Alpaca confirms account is FLAT.")
+
+                 # Make DB agree with Alpaca after EOD liquidation
+                reconciliation.reconcile_positions()
+                print("EOD liquidation and reconciliation complete.")
+
+            else:
+                print("")
+                print(
+                    "WARNING: Could not confirm Alpaca is flat."
+                )
+
+                send_failure_notification(
+                    "EOD liquidation could not confirm "
+                    "that Alpaca account is flat."
+                )
+
+
+    
+            # Stop trading for rest of day
+            time.sleep(3600)
             continue
 
 
@@ -57,10 +108,20 @@ def main():
             df = queries.get_latest_bars(symbol)
 
             # check sells first
-            trade_executions.sell(symbol, df)
+            result = trade_executions.sell(symbol, df)
+
+            if result == broker_api.ORDER_UNKNOWN:
+                print(f"Unknown SELL result for {symbol}. Reconciling...")
+                reconciliation.reconcile_positions()
+                continue
 
             # then check buys
-            trade_executions.buy(symbol, df)
+            result = trade_executions.buy(symbol, df)
+
+            if result == broker_api.ORDER_UNKNOWN:
+                print(f"Unknown BUY result for {symbol}. Reconciling...")
+                reconciliation.reconcile_positions()
+                continue
 
         
         # 4 - update positions if current price > highest_price 
