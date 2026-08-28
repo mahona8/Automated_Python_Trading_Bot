@@ -37,7 +37,7 @@ ORDER_UNKNOWN = "unknown"
 
 def wait_for_fill(
     order_id,
-    max_attempts=30,
+    max_attempts=10,
     delay=2,
     connection_retry_delay=2
 ):
