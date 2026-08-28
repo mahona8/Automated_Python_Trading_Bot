@@ -12,10 +12,11 @@ PROJECT STRUCTURE:
 
 - database:
 	- db.py				        create database & connect to db functions
-	- market.duckdb		    actual database (non-readable)
+	- market.duckdb		    	actual database (non-readable)
 	- queries.py			    database functions
 	- __init__.py			    treat database as a python package (not a folder)
-
+    - reconciliation.py 		sends compares database to Alpaca and updates database to Alpaca
+      								if discrepancies occur (due to connection failure)
 - trading:
 	- trade_functions.py		  functions involving indicators but no trading logic
 	- trade_logic.py		      using indicator functions to form buy/sell logic	
