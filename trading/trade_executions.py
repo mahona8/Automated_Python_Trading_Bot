@@ -13,13 +13,16 @@ from zoneinfo import ZoneInfo
 # update positions table
 # update trades table
 
+# official and FINAL buy signal
+def buy(symbol, df, account):
 
-# official and FINAl buy signal
-def buy(symbol, df):
-    # if indicators = true AND risk checks = false
-    if (trade_logic.buy_indicators(df) == True) and risk_logic.should_buy(symbol) == True:
+    # if indicators AND risk checks 
+    if (
+        trade_logic.buy_indicators(df)
+        and risk_logic.should_buy(symbol, account)
+    ):
 
-        position_value = risk_functions.calculate_position_size(symbol)
+        position_value = risk_functions.calculate_position_size(account)
         current_price = risk_functions.get_latest_price(symbol)
 
         if current_price is None:
@@ -34,68 +37,93 @@ def buy(symbol, df):
             )
             return False
 
-        # prevent any crazy big buy orders
         estimated_cost = quantity * current_price
-        if estimated_cost > risk_functions.get_buying_power():
+
+        if estimated_cost > risk_functions.get_buying_power(account):
             print("Trade blocked: insufficient buying power")
             return False
 
-        # place order
+        # Place order
         order = broker_api.buy_order(symbol, quantity)
 
         if order == broker_api.ORDER_UNKNOWN:
-
-            print(
-                f"BUY order state UNKNOWN for {symbol}. "
-            )
+            print(f"BUY order state UNKNOWN for {symbol}.")
             return broker_api.ORDER_UNKNOWN
 
         if order is None:
             return False
-        
+
         entry_time = datetime.now(ZoneInfo("UTC"))
         entry_price = float(order.filled_avg_price)
-        stop_loss = entry_price * (1 - risk_constants.STOP_LOSS_PERCENT)
-        trailing_stop = entry_price * (1 - risk_constants.TRAILING_STOP_PERCENT)
+
+        stop_loss = (
+            entry_price *
+            (1 - risk_constants.STOP_LOSS_PERCENT)
+        )
+
+        trailing_stop = (
+            entry_price *
+            (1 - risk_constants.TRAILING_STOP_PERCENT)
+        )
+
         side = "buy"
         reason = "buy_signal"
         pnl = None
 
-        # log
-        db_logging.add_position(symbol, quantity, entry_price,
-                             entry_time, stop_loss, trailing_stop)
+        db_logging.add_position(
+            symbol,
+            quantity,
+            entry_price,
+            entry_time,
+            stop_loss,
+            trailing_stop
+        )
 
-        db_logging.add_trade(symbol, side, quantity,
-                 entry_price, entry_time, reason, pnl)
-    else:
-        return False
+        db_logging.add_trade(
+            symbol,
+            side,
+            quantity,
+            entry_price,
+            entry_time,
+            reason,
+            pnl
+        )
+
+        return True
+
+    return False
 
 
-# official and FINAl sell signal 
+# official and FINAL sell signal
 def sell(symbol, df, minutes_to_close):
 
     if df is None or df.empty:
-        return 
+        return False
 
-    # if indicators = true OR risk checks = true OR market close approaching
-    if (trade_logic.sell_indicators(df) == True
-        or risk_logic.should_sell(symbol) == True
-        or minutes_to_close() <= 15):
+    sell_signal = trade_logic.sell_indicators(df)
+    risk_signal = risk_logic.should_sell(symbol)
+
+    # indicators OR risk check OR market close approaching
+    if (
+        sell_signal
+        or risk_signal
+        or minutes_to_close <= 15
+    ):
 
         # determine reason
-        if minutes_to_close() <= 15:
+        if minutes_to_close <= 15:
             reason = "market_closure"
 
-        elif risk_logic.should_sell(symbol) == True:
+        elif risk_signal:
             reason = "risk_signal"
 
-        elif trade_logic.sell_indicators(df) == True:
+        elif sell_signal:
             reason = "sell_signal"
 
         else:
             reason = None
 
-        # get current position
+        # Get current position
         position = db_logging.get_position(symbol)
 
         if position is None:
@@ -107,9 +135,8 @@ def sell(symbol, df, minutes_to_close):
         order = broker_api.sell_order(symbol, quantity)
 
         if order == broker_api.ORDER_UNKNOWN:
-
             print(
-            f"SELL order state UNKNOWN for {symbol}. "
+                f"SELL order state UNKNOWN for {symbol}."
             )
             return broker_api.ORDER_UNKNOWN
 
@@ -117,10 +144,8 @@ def sell(symbol, df, minutes_to_close):
             print(f"Sell order failed for {symbol}.")
             return False
 
-        # get actual sell fill price
         exit_price = float(order.filled_avg_price)
 
-        # calculate profit/loss
         pnl = risk_functions.calculate_pnl(
             entry_price,
             exit_price,
@@ -130,7 +155,6 @@ def sell(symbol, df, minutes_to_close):
         side = "sell"
         trade_time = datetime.now(ZoneInfo("UTC"))
 
-        # log completed trade
         db_logging.add_trade(
             symbol,
             side,
@@ -141,8 +165,9 @@ def sell(symbol, df, minutes_to_close):
             pnl
         )
 
-        # remove open position
         db_logging.remove_position(symbol)
 
-    else:
-        return False
+        return True
+
+    return False
+
