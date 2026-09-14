@@ -72,7 +72,7 @@ def buy(symbol, df):
 
 
 # official and FINAl sell signal 
-def sell(symbol, df):
+def sell(symbol, df, minutes_to_close):
 
     if df is None or df.empty:
         return 
@@ -80,10 +80,10 @@ def sell(symbol, df):
     # if indicators = true OR risk checks = true OR market close approaching
     if (trade_logic.sell_indicators(df) == True
         or risk_logic.should_sell(symbol) == True
-        or trade_functions.minutes_until_market_close() <= 15):
+        or minutes_to_close() <= 15):
 
         # determine reason
-        if trade_functions.minutes_until_market_close() <= 15:
+        if minutes_to_close() <= 15:
             reason = "market_closure"
 
         elif risk_logic.should_sell(symbol) == True:
