@@ -4,7 +4,7 @@ import requests
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
 
 from dotenv import load_dotenv
 
@@ -35,7 +35,7 @@ ORDER_UNKNOWN = "unknown"
 # returns:
 #   order object -> confiremed filled
 #   none -> confirmed rejected/canceled/expired
-#   oder unknown -> unable to determine final state
+#   order unknown -> unable to determine final state
 def wait_for_fill(
     order_id,
     max_attempts=10,
@@ -50,9 +50,7 @@ def wait_for_fill(
                 order_id
             )
 
-            status = str(
-                order.status
-            ).lower()
+            status = order.status
 
             print(
                 f"Order {order_id} status: "
@@ -60,20 +58,19 @@ def wait_for_fill(
                 f"({attempt}/{max_attempts})"
             )
 
-            # filled
-            if status == ORDER_FILLED:
+            # Filled
+            if status == OrderStatus.FILLED:
                 return order
 
-           # confirmed failure
+            # Confirmed failure
             if status in {
-                ORDER_REJECTED,
-                ORDER_CANCELLED,
-                ORDER_EXPIRED
+                OrderStatus.REJECTED,
+                OrderStatus.CANCELED,
+                OrderStatus.EXPIRED
             }:
-
                 return None
 
-            # still open
+            # Still open
             if attempt < max_attempts:
                 time.sleep(delay)
 
@@ -90,112 +87,19 @@ def wait_for_fill(
 
             print(e)
 
-            # do not resubmit
+            # Do not resubmit
             if attempt < max_attempts:
 
-                # give connection time to recover
+                # Give connection time to recover
                 time.sleep(delay * 2)
 
             continue
 
-    # unknown
+    # Unknown
     print(
         f"ORDER UNKNOWN: could not determine final "
         f"state of {order_id}"
     )
 
     return ORDER_UNKNOWN
-
-
-def buy_order(symbol, quantity):
-
-    try:
-
-        order_request = MarketOrderRequest(
-            symbol=symbol,
-            qty=quantity,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY
-        )
-
-        print(
-            f"Submitting BUY order: "
-            f"{symbol} x {quantity}"
-        )
-
-        submitted_order = (
-            trading_client.submit_order(
-                order_request
-            )
-        )
-
-        print(
-            f"BUY submitted. "
-            f"Order ID: {submitted_order.id}"
-        )
-
-    except (
-        requests.exceptions.ConnectionError,
-        requests.exceptions.Timeout
-    ) as e:
-
-        print(
-            f"Connection failed while submitting BUY for Symbol: {symbol}\n"
-            f"Quantity: {quantity}\n"
-            f"Error: {e}\n\n"
-        )
-        print(e)
-
-        return ORDER_UNKNOWN
-
-    return wait_for_fill(
-        submitted_order.id
-    )
-
-
-def sell_order(symbol, quantity):
-
-    try:
-
-        order_request = MarketOrderRequest(
-            symbol=symbol,
-            qty=quantity,
-            side=OrderSide.SELL,
-            time_in_force=TimeInForce.DAY
-        )
-
-        print(
-            f"Submitting SELL order: "
-            f"{symbol} x {quantity}"
-        )
-
-        submitted_order = (
-            trading_client.submit_order(
-                order_request
-            )
-        )
-
-        print(
-            f"SELL submitted. "
-            f"Order ID: {submitted_order.id}"
-        )
-
-    except (
-        requests.exceptions.ConnectionError,
-        requests.exceptions.Timeout
-    ) as e:
-
-        print(
-            f"Connection failed while submitting SELL"
-            f"Symbol: {symbol}\n"
-            f"Quantity: {quantity}\n"
-            f"Error: {e}\n\n"
-        )
-        print(e)
-
-        return ORDER_UNKNOWN
-
-    return wait_for_fill(
-        submitted_order.id
-    )
 
