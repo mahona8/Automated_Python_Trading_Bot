@@ -1,7 +1,7 @@
 import time
 
 from notifications import send_failure_notification
-from trading import reconciliation
+from database import reconciliation
 from trading import trade_executions
 from trading import trade_functions
 import broker_api
