@@ -140,9 +140,9 @@ def buy_order(symbol, quantity):
     ) as e:
 
         print(
-            "Connection failed while submitting BUY for Symbol: {symbol}\n"
-            "Quantity: {quantity}\n"
-            "Error: {e}\n\n"
+            f"Connection failed while submitting BUY for Symbol: {symbol}\n"
+            f"Quantity: {quantity}\n"
+            f"Error: {e}\n\n"
         )
         print(e)
 
@@ -186,10 +186,10 @@ def sell_order(symbol, quantity):
     ) as e:
 
         print(
-            "Connection failed while submitting SELL"
-            "Symbol: {symbol}\n"
-            "Quantity: {quantity}\n"
-            "Error: {e}\n\n"
+            f"Connection failed while submitting SELL"
+            f"Symbol: {symbol}\n"
+            f"Quantity: {quantity}\n"
+            f"Error: {e}\n\n"
         )
         print(e)
 
