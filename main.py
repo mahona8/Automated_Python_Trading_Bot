@@ -1,63 +1,103 @@
 import time
 
 from notifications import send_failure_notification
+
 from database import reconciliation
 from trading import trade_executions
 from trading import trade_functions
+
 import broker_api
 import market_data
 import symbols
 import db_logging
+
 from database import queries
 
 
 def main():
+
     print("=" * 60)
     print("TRADING BOT STARTED")
     print("=" * 60)
 
     while True:
 
-        # 1 - GET MARKET CLOCK ONCE
+
+        # 1 - GET MARKET CLOCK
+
+
         try:
-            clock = trade_functions.get_market_clock()
+
+            clock = (
+                trade_functions.get_market_clock()
+            )
+
         except Exception as e:
+
             print("")
-            print("ERROR: Could not get market clock.")
+            print(
+                "ERROR: Could not get market clock."
+            )
             print(e)
 
-            # don't hammer Alpaca if connection is unavailable
+            # don't hammer Alpaca if the connection is unavailable.
             time.sleep(60)
+
             continue
 
 
+        # 2 - CHECK IS MARKET OPEN?
 
-        # 2 - CHECK IS MARKET OPEN
+
         if not trade_functions.market_is_open(clock):
-            print("Market is closed.")
+
+            print(
+                "Market is closed."
+            )
+
             time.sleep(60)
+
             continue
 
 
+        # 3 - CALCULATE MINUTES UNTIL CLOSE
 
-        # 3 - CALCULATE TIME UNTIL MARKET CLOSE ONCE
+
         try:
-            minutes_to_close = trade_functions.minutes_until_market_close(clock)
+
+            minutes_to_close = (
+                trade_functions
+                .minutes_until_market_close(clock)
+            )
+
         except Exception as e:
-            print("ERROR: Could not calculate minutes until market close.")
+
+            print(
+                "ERROR: Could not calculate "
+                "minutes until market close."
+            )
+
             print(e)
 
             time.sleep(60)
+
             continue
 
         print("")
         print("-" * 60)
-        print(f"Market open. Minutes until close: {minutes_to_close:.2f}")
+
+        print(
+            f"Market open. "
+            f"Minutes until close: "
+            f"{minutes_to_close:.2f}"
+        )
+
         print("-" * 60)
 
 
+        # 4 - EOD LIQUIDATION
 
-        # 4 - EOD lLIQUIDATION
+
         if minutes_to_close < 15:
 
             print("")
@@ -65,149 +105,131 @@ def main():
             print("EOD LIQUIDATION STARTING")
             print("=" * 60)
 
-            # first close positions known by my DB
-            positions = db_logging.get_all_positions()
-
-            if not positions:
-                print("No DB positions to liquidate.")
-            else:
-                print(f"Found {len(positions)} DB position(s).")
-
-            for position in positions:
-                symbol = position[0]
-
-                print("")
-                print(f"EOD DB position: {symbol} x {position[1]}")
-
-                try:
-                    df = queries.get_latest_bars(symbol)
-
-                    if df is None or df.empty:
-                        print(
-                            f"Could not get market data for {symbol}. "
-                            f"Skipping DB liquidation attempt."
-                        )
-                        continue
-
-                    result = trade_executions.sell(
-                        symbol,
-                        df,
-                        minutes_to_close=minutes_to_close
-                    )
-
-                    if result == broker_api.ORDER_UNKNOWN:
-                        print(
-                            f"EOD SELL for {symbol} returned UNKNOWN."
-                        )
-
-                        # don't resubmit order
-                        # reconciliation will determine whether Alpaca
-                        # actually received/filled order
-                        try:
-                            reconciliation.reconcile_positions()
-                        except Exception as reconcile_error:
-                            print(
-                                f"Reconciliation failed after unknown "
-                                f"EOD SELL for {symbol}: "
-                                f"{reconcile_error}"
-                            )
-
-                    elif result is False:
-                        print(
-                            f"EOD SELL failed or was not completed "
-                            f"for {symbol}."
-                        )
-
-                    else:
-                        print(
-                            f"EOD SELL completed for {symbol}."
-                        )
-
-                except Exception as e:
-                    print(
-                        f"ERROR liquidating DB position {symbol}: {e}"
-                    )
-
-                    send_failure_notification(
-                        f"EOD LIQUIDATION ERROR\n\n"
-                        f"Symbol: {symbol}\n"
-                        f"Error: {e}"
-                    )
-
-                    # continue trying remaining positions
-                    continue
-
-            # Second check Alpaca directly
+            # -------------------------------------------------
+            # IMPORTANT:
+            # Alpaca is authoritative for EOD liquidation.
+            # We do NOT loop through DB positions here.
+            #
             # This catches:
-            # - positions not in our DB
-            # - unknown orders that actually filled
+            #
+            # - DB positions
+            # - positions missing from DB
+            # - positions created by an unknown order
             # - DB failures
-            # - any other discrepancy
-            print("")
-            print("Checking Alpaca for remaining positions...")
+            # - reconciliation discrepancies
+            # -------------------------------------------------
 
             try:
-                alpaca_flat = reconciliation.close_all_alpaca_positions()
-            except Exception as e:
-                print(
-                    "ERROR while closing remaining Alpaca positions:"
+
+                alpaca_flat = (
+                    broker_api.close_all_positions()
                 )
+
+            except Exception as e:
+
+                print("")
+                print(
+                    "ERROR during Alpaca EOD "
+                    "liquidation:"
+                )
+
                 print(e)
 
                 alpaca_flat = False
 
                 send_failure_notification(
-                    f"EOD ALPACA LIQUIDATION ERROR\n\n"
-                    f"Class: main.py\n"
-                    f"4 - EOD LIQUIDATION\n\n"
+                    "4 - EOD ALPACA LIQUIDATION ERROR\n\n"
+                    "The bot could not complete the "
+                    "Alpaca EOD liquidation process.\n\n"
                     f"Error: {e}"
                 )
 
-            # final result
+            # alpaca is flat
             if alpaca_flat:
+
                 print("")
                 print("=" * 60)
                 print("EOD LIQUIDATION SUCCESSFUL")
                 print("Alpaca confirms account is FLAT.")
                 print("=" * 60)
 
-                # make sure my DB agrees with Alpaca being flat
+
+                # now reconcile local database
                 try:
-                    reconciliation.reconcile_positions()
+
+                    reconciliation_success = (
+                        reconciliation.reconcile_positions()
+                    )
+
                 except Exception as e:
+
+                    reconciliation_success = False
+
                     print(
-                        "WARNING: Alpaca is flat, but final DB "
-                        f"reconciliation failed: {e}"
+                        "WARNING: Alpaca is flat, "
+                        "but DB reconciliation raised "
+                        "an exception."
+                    )
+
+                    print(e)
+
+                if not reconciliation_success:
+
+                    print("")
+                    print(
+                        "WARNING: Alpaca is FLAT, "
+                        "but DB reconciliation could "
+                        "not be confirmed."
                     )
 
                     send_failure_notification(
-                        f"4 - EOD DB RECONCILIATION WARNING\n\n"
-                        f"Alpaca confirmed FLAT, but DB reconciliation failed.\n\n "
-                        f"Error: {e}"
+                        "4 - EOD DB RECONCILIATION WARNING\n\n"
+                        "Alpaca confirmed FLAT, but "
+                        "database reconciliation failed."
                     )
 
+            # alpaca is NOT flat:
             else:
+
                 print("")
                 print("=" * 60)
-                print("WARNING: COULD NOT CONFIRM ALPACA IS FLAT")
+                print(
+                    "WARNING: COULD NOT CONFIRM "
+                    "ALPACA IS FLAT"
+                )
                 print("=" * 60)
 
                 send_failure_notification(
-                    "4 - EOD LIQUIDATION"
+                    "4 - EOD LIQUIDATION\n\n"
                     "EOD liquidation could not confirm "
-                    "that the Alpaca account is flat"
+                    "that the Alpaca account is flat."
                 )
 
-            # don't immediately start making trades again
-            # sleep until the next reasonable trading cycle
+            # don't start trading again this cycle
+            print("")
+            print(
+                "EOD processing complete."
+            )
+
+            print(
+                "Waiting before next trading cycle..."
+            )
+
             time.sleep(3600)
+
             continue
 
 
+        # 5 - GET ACCOUNT
 
-        # 5 - GET ACCOUNT ONCE PER LOOP
+
         try:
-            account = broker_api.trading_client.get_account()
+
+            account = (
+                broker_api
+                .trading_client
+                .get_account()
+            )
 
             print("")
             print(
@@ -221,169 +243,231 @@ def main():
             )
 
         except Exception as e:
+
             print("")
-            print("ERROR: Could not retrieve Alpaca account.")
+            print(
+                "ERROR: Could not retrieve "
+                "Alpaca account."
+            )
+
             print(e)
 
-            # there's no point evaluating BUY decisions if we
-            # can't determine account equity/buying power
             time.sleep(60)
-            continue
 
+            continue
 
 
         # 6 - UPDATE MARKET DATA
+
+
         try:
+
             market_data.update_market_data()
+
         except Exception as e:
+
             print("")
-            print("ERROR updating market data.")
+            print(
+                "ERROR updating market data."
+            )
+
             print(e)
 
-            # don't trade using potentially stale/missing data
+            # don't trade with potentially stale or missing data.
             time.sleep(60)
+
             continue
 
 
-
         # 7 - PROCESS EACH SYMBOL
+
+
         for symbol in symbols.NASDAQ_100_SYMBOLS:
 
             print("")
-            print(f"Processing {symbol}...")
+            print(
+                f"Processing {symbol}..."
+            )
 
             try:
-                # get latest bars from local DB.
-                # NO Alpaca API request
-                df = queries.get_latest_bars(symbol)
+
+                # market data from local db
+                df = (
+                    queries
+                    .get_latest_bars(symbol)
+                )
 
                 if df is None or df.empty:
+
                     print(
-                        f"No market data available for {symbol}. "
+                        f"No market data available "
+                        f"for {symbol}. "
                         f"Skipping."
                     )
+
                     continue
 
                 # sell first
-                result = trade_executions.sell(
-                    symbol,
-                    df,
-                    minutes_to_close=minutes_to_close
+                result = (
+                    trade_executions.sell(
+                        symbol,
+                        df,
+                        minutes_to_close=minutes_to_close
+                    )
                 )
 
+                # unkown sell
                 if result == broker_api.ORDER_UNKNOWN:
 
                     print(
-                        f"SELL order state UNKNOWN for {symbol}."
+                        f"SELL order state UNKNOWN "
+                        f"for {symbol}."
                     )
 
                     print(
-                        "Reconciling DB with Alpaca before "
-                        "continuing to the next symbol..."
+                        "Reconciling DB with Alpaca "
+                        "before continuing..."
                     )
 
                     try:
+
                         reconciliation.reconcile_positions()
+
                     except Exception as e:
+
                         print(
-                            f"Reconciliation failed after unknown "
-                            f"SELL for {symbol}: {e}"
+                            f"Reconciliation failed "
+                            f"after unknown SELL "
+                            f"for {symbol}: {e}"
                         )
 
-                    # -----------------------------------------
                     # IMPORTANT:
-                    # Do NOT try to buy this same symbol
-                    # We don't know whether the SELL happened
-                    # Move directly to the next symbol
-                    # -----------------------------------------
+                    #
+                    # din't buy this symbol
+                    # we don't know whether the SELL actually happened
+
                     continue
 
                 # buy
-                result = trade_executions.buy(
-                    symbol,
-                    df,
-                    account
+                result = (
+                    trade_executions.buy(
+                        symbol,
+                        df,
+                        account
+                    )
                 )
 
+                # unkown buy
                 if result == broker_api.ORDER_UNKNOWN:
 
                     print(
-                        f"BUY order state UNKNOWN for {symbol}."
+                        f"BUY order state UNKNOWN "
+                        f"for {symbol}."
                     )
 
                     print(
-                        "Reconciling DB with Alpaca before "
-                        "continuing to the next symbol..."
+                        "Reconciling DB with Alpaca "
+                        "before continuing..."
                     )
 
                     try:
+
                         reconciliation.reconcile_positions()
+
                     except Exception as e:
+
                         print(
-                            f"Reconciliation failed after unknown "
-                            f"BUY for {symbol}: {e}"
+                            f"Reconciliation failed "
+                            f"after unknown BUY "
+                            f"for {symbol}: {e}"
                         )
 
-                    # -----------------------------------------
                     # IMPORTANT:
                     # Never automatically resubmit the BUY
-                    # Move to the next symbol
-                    # -----------------------------------------
+
                     continue
 
             except Exception as e:
 
-                # -------------------------------------------------
-                # A failure on one symbol should NEVER kill the
-                # entire trading loop.
-                # -------------------------------------------------
+                # one symbol must never kill the whole bot
                 print("")
+
                 print(
                     f"ERROR processing {symbol}:"
                 )
+
                 print(e)
 
-                # continue to next symbol
                 continue
 
 
-
         # 8 - UPDATE TRAILING STOPS
+
+
         print("")
-        print("Updating trailing stops...")
+        print(
+            "Updating trailing stops..."
+        )
 
         try:
-            positions = db_logging.get_all_positions()
-        except Exception as e:
-            print(
-                f"Could not retrieve DB positions "
-                f"for trailing stops: {e}"
+
+            positions = (
+                db_logging.get_all_positions()
             )
+
+        except Exception as e:
+
+            print(
+                "Could not retrieve DB positions "
+                "for trailing stops:"
+            )
+
+            print(e)
+
             positions = []
 
         for position in positions:
 
             try:
-                symbol = position[0]
-                highest_price = float(position[4])
-                stop_loss = float(position[5])
 
-                # market data comes from local DB
-                df = queries.get_latest_bars(symbol)
+                symbol = position[0]
+
+                highest_price = float(
+                    position[4]
+                )
+
+                stop_loss = float(
+                    position[5]
+                )
+
+                # local market data
+                df = (
+                    queries
+                    .get_latest_bars(symbol)
+                )
 
                 if df is None or df.empty:
+
                     print(
-                        f"No latest bars for {symbol}. "
-                        f"Skipping trailing stop update."
+                        f"No latest bars for "
+                        f"{symbol}. "
+                        f"Skipping trailing "
+                        f"stop update."
                     )
+
                     continue
 
-                current_price = float(df["close"].iloc[-1])
+                current_price = float(
+                    df["close"].iloc[-1]
+                )
 
-                # new high
+                # new high price
                 if current_price > highest_price:
 
-                    new_highest_price = current_price
+                    new_highest_price = (
+                        current_price
+                    )
+
                     new_trailing_stop = (
                         current_price * 0.95
                     )
@@ -396,30 +480,42 @@ def main():
                     )
 
                     print(
-                        f"{symbol}: trailing stop updated. "
-                        f"Highest=${new_highest_price:.2f}, "
-                        f"Trailing Stop=${new_trailing_stop:.2f}"
+                        f"{symbol}: trailing stop "
+                        f"updated. "
+                        f"Highest="
+                        f"${new_highest_price:.2f}, "
+                        f"Trailing Stop="
+                        f"${new_trailing_stop:.2f}"
                     )
 
             except Exception as e:
 
                 print(
-                    f"ERROR updating trailing stop for "
-                    f"{position[0]}: {e}"
+                    f"ERROR updating trailing stop "
+                    f"for {position[0]}: {e}"
                 )
 
-                # don't let one bad DB/data row stop the bot
+                # don't let one bad DB/data row stop the trading loop
+
                 continue
 
 
+        # 9 - WAIT
+       
 
-        # 9 - WAIT BEFORE NEXT CYCLE
         print("")
-        print("Cycle complete.")
-        print("Sleeping for 60 seconds...")
+        print(
+            "Cycle complete."
+        )
+
+        print(
+            "Sleeping for 60 seconds..."
+        )
+
         print("")
 
         time.sleep(60)
+
 
 
 if __name__ == "__main__":
