@@ -122,7 +122,7 @@ def main():
             try:
 
                 alpaca_flat = (
-                    broker_api.close_all_positions()
+                    trade_functions.liquidate_all_positions()
                 )
 
             except Exception as e:

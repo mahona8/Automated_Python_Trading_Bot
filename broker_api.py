@@ -46,7 +46,7 @@ def wait_for_fill(order_id, max_attempts=10, delay=2):
         try:
             order = trading_client.get_order_by_id(order_id)
 
-            status = str(order.status).lower()
+            status = order.status.value.lower()
 
             print(
                 f"Order {order_id} status: "
@@ -55,6 +55,9 @@ def wait_for_fill(order_id, max_attempts=10, delay=2):
             )
 
             if status == ORDER_FILLED:
+                print(
+                    f"Order {order_id} FILLED successfully."
+                )
                 return order
 
             if status in (
@@ -74,9 +77,6 @@ def wait_for_fill(order_id, max_attempts=10, delay=2):
             requests.exceptions.Timeout,
             ConnectionResetError
         ) as e:
-            # IMPORTANT:
-            # Do NOT submit another order here
-            # original order may have reached Alpaca even though the response was lost
             print(
                 f"Connection error while checking order "
                 f"{order_id}: {e}"

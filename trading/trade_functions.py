@@ -236,11 +236,11 @@ def price_above_vwap(df):
 
 def rsi_momentum(df):
     if df is None or df.empty:
-        return False
+        return None
 
     rsi = get_rsi(df)
 
-    return rsi.iloc[-1] > 50
+    return rsi.iloc[-1]
 
 
 def macd_bullish_cross(df):
