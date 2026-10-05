@@ -16,6 +16,14 @@ from zoneinfo import ZoneInfo
 # official and FINAL buy signal
 def buy(symbol, df, account):
 
+    # logging why buys fail
+    if (trade_logic.buy_indicators(df) == False):
+        print(f"{symbol}: BUY REJECTED - buy_indicators returned False")
+
+    if (risk_logic.should_buy(symbol, account)):
+        print(f"{symbol}: BUY REJECTED - risk_inidcators should_buy? returned False")
+
+
     # if indicators AND risk checks 
     if (
         trade_logic.buy_indicators(df)
@@ -99,6 +107,14 @@ def sell(symbol, df, minutes_to_close):
 
     if df is None or df.empty:
         return False
+    
+     # logging why sells fail
+    if (trade_logic.sell_indicators(df) == False):
+        print(f"{symbol}: SELL REJECTED - sell_indicators returned False")
+
+    if (risk_logic.should_sell(symbol)):
+        print(f"{symbol}: BUY REJECTED - risk_indicators should_sell? returned False")
+      
 
     sell_signal = trade_logic.sell_indicators(df)
     risk_signal = risk_logic.should_sell(symbol)
